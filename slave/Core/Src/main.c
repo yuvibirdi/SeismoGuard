@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* USER CODE END Includes */
@@ -27,10 +28,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define MPU6050_ADDR (0x68 << 1)
-
-#define FS_GYRO_250 0
-#define FS_GYRO_500 8
-
 
 #define FS_ACC_2G 0
 #define FS_ACC_4G 8
@@ -69,7 +66,7 @@ static void MX_I2C1_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-// Global variables for STM32cubeMonitor
+/* Global variables for STM32cubeMonitor--------------------------------------*/
 HAL_StatusTypeDef ret;
 uint8_t ret_ready = 10;
 uint8_t ret_accel = 20;
@@ -78,6 +75,34 @@ uint8_t done_reset_func = 0;
 
 int16_t AccelX, AccelY, AccelZ;
 float AccelX_g, AccelY_g, AccelZ_g;
+
+
+/* Some functions-------------------------------------------------------------*/
+
+// Resolve HAL_BUSY error
+void I2C_Bus_Recovery(void) {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  // Reconfigure SCL and SDA as GPIO
+  __HAL_RCC_GPIOB_CLK_ENABLE(); // Enable GPIO clock (adjust based on your pin)
+  GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9; // Replace with your I2C pins
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  // Manually clock SCL line
+  for (int i = 0; i < 21; i++) {
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET); // SCL High
+    HAL_Delay(20); // Short delay
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET); // SCL Low
+    HAL_Delay(20);
+  }
+
+  // Reinitialize I2C
+  HAL_I2C_DeInit(&hi2c1);
+  HAL_I2C_Init(&hi2c1);
+}
 
 // Initialize MPU
 void MPU6050_Init() {
@@ -127,32 +152,6 @@ void MPU6050_Init() {
   }
 }
 
-// Resolve HAL_BUSY error
-void I2C_Bus_Recovery(void) {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  // Reconfigure SCL and SDA as GPIO
-  __HAL_RCC_GPIOB_CLK_ENABLE(); // Enable GPIO clock (adjust based on your pin)
-  GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9; // Replace with your I2C pins
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  // Manually clock SCL line
-  for (int i = 0; i < 21; i++) {
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET); // SCL High
-    HAL_Delay(20); // Short delay
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET); // SCL Low
-    HAL_Delay(20);
-  }
-
-  // Reinitialize I2C
-  HAL_I2C_DeInit(&hi2c1);
-  HAL_I2C_Init(&hi2c1);
-}
-
-
 void MPU6050_Read_Accel(int16_t *AccelX, int16_t *AccelY, int16_t *AccelZ) {
   uint8_t buffer[6]; // Buffer to store the raw data (6 bytes for X, Y, Z)
 
@@ -167,7 +166,6 @@ void MPU6050_Read_Accel(int16_t *AccelX, int16_t *AccelY, int16_t *AccelZ) {
     *AccelX = 0;
     *AccelY = 0;
     *AccelZ = 0;
-
   }
 }
 
@@ -182,34 +180,23 @@ float MPU6050_Convert_to_g(int16_t raw_value) {
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
-
   /* USER CODE END 1 */
-
   /* MCU Configuration--------------------------------------------------------*/
-
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
   /* USER CODE BEGIN Init */
-
   /* USER CODE END Init */
-
   /* Configure the system clock */
   SystemClock_Config();
-
   /* USER CODE BEGIN SysInit */
-
   /* USER CODE END SysInit */
-
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   MPU6050_Init();
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -217,10 +204,8 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
     /* USER CODE BEGIN 3 */
     MPU6050_Read_Accel(&AccelX, &AccelY, &AccelZ);
-
     AccelX_g = MPU6050_Convert_to_g(AccelX);
     AccelY_g = MPU6050_Convert_to_g(AccelY);
     AccelZ_g = MPU6050_Convert_to_g(AccelZ);
