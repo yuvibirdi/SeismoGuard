@@ -188,7 +188,7 @@ void MPU6050_Read_Accel(int16_t *AccelX, int16_t *AccelY, int16_t *AccelZ) {
 }
 
 float MPU6050_Convert_to_g(int16_t raw_value) {
-  return (float)(raw_value / 16384.0);  // Assuming default ±2g sensitivity
+  return (float)(raw_value / 16384.0);  // Assuming default Â±2g sensitivity
 }
 
 // Define the structure globally or before you use it
@@ -231,6 +231,16 @@ struct CalibrationData MPU6050_Calibration() {
     struct CalibrationData data = {AccelX_g_sum, AccelY_g_sum, AccelZ_g_sum};
 
     return data; // Return the structure
+}
+
+// n is the severity of earthquake
+// n = 0: no earthquake
+// n = 1: >0.02g, <=0.1g
+// n = 2: >0.1g, <=0.2g
+// n = 3: >0.2g
+void transmitEarthquake(int8_t n){
+    int8_t earthquake[1] = n;
+    HAL_UART_Transmit(&huart1, earthquake, sizeof(earthquake), 1000);
 }
 
 /* USER CODE END 0 */
@@ -281,6 +291,8 @@ int main(void)
   float AccelY_cal = calibration.AccelY;
   float AccelZ_cal = calibration.AccelZ;
 
+  float AccelMagSqr_g;
+
 
   /* USER CODE END 2 */
 
@@ -300,6 +312,17 @@ int main(void)
     AccelY_g -= AccelY_cal;
     AccelZ_g -= AccelZ_cal;
 
+    AccelMagSqr_g = AccelX_g*AccelX_g+AccelY_g*AccelY_g+AccelZ_g*AccelZ_g;
+
+    if(AccelMagSqr_g>0.2*0.2){
+        transmitEarthquake(3);
+    } else if(AccelMagSqr_g>0.1*0.1){
+        transmitEarthquake(2);
+    } else if(AccelMagSqr_g>0.02*0.02){
+        transmitEarthquake(1);
+    } else {
+        transmitEarthquake(0);
+    }
 
 //    Accel_xyz data;
 //    data.AccelX_g = AccelX_g;
