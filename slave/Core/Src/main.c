@@ -22,12 +22,18 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* USER CODE END Includes */
+
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* USER CODE END PTD */
+
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define MPU6050_ADDR (0x68 << 1)
+
+#define FS_GYRO_250 0
+#define FS_GYRO_500 8
+
 
 #define FS_ACC_2G 0
 #define FS_ACC_4G 8
@@ -47,26 +53,39 @@
 
 #define ACCEL_ZOUT_H 0x3F
 #define ACCEL_ZOUT_L 0x40
+
+typedef struct{
+  float AccelX_g, AccelY_g, AccelZ_g;
+}Accel_xyz;
 /* USER CODE END PD */
+
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 /* USER CODE END PM */
+
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
+
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
+
 /* USER CODE BEGIN PV */
+
 /* USER CODE END PV */
+
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
+
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-/* Global variables for STM32cubeMonitor--------------------------------------*/
+// Global variables for STM32cubeMonitor
 HAL_StatusTypeDef ret;
 uint8_t ret_ready = 10;
 uint8_t ret_accel = 20;
@@ -75,35 +94,7 @@ uint8_t done_reset_func = 0;
 
 int16_t AccelX, AccelY, AccelZ;
 float AccelX_g, AccelY_g, AccelZ_g;
-
-
-/* Some functions-------------------------------------------------------------*/
-
-// Resolve HAL_BUSY error
-void I2C_Bus_Recovery(void) {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  // Reconfigure SCL and SDA as GPIO
-  __HAL_RCC_GPIOB_CLK_ENABLE(); // Enable GPIO clock (adjust based on your pin)
-  GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9; // Replace with your I2C pins
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  // Manually clock SCL line
-  for (int i = 0; i < 21; i++) {
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET); // SCL High
-    HAL_Delay(20); // Short delay
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET); // SCL Low
-    HAL_Delay(20);
-  }
-
-  // Reinitialize I2C
-  HAL_I2C_DeInit(&hi2c1);
-  HAL_I2C_Init(&hi2c1);
-}
-
+// Accelerometer Data Calibration
 // Initialize MPU
 void MPU6050_Init() {
   ret = HAL_I2C_IsDeviceReady(&hi2c1, MPU6050_ADDR, 1, 100);
@@ -152,12 +143,38 @@ void MPU6050_Init() {
   }
 }
 
+// Resolve HAL_BUSY error
+void I2C_Bus_Recovery(void) {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  // Reconfigure SCL and SDA as GPIO
+  __HAL_RCC_GPIOB_CLK_ENABLE(); // Enable GPIO clock (adjust based on your pin)
+  GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9; // Replace with your I2C pins
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  // Manually clock SCL line
+  for (int i = 0; i < 21; i++) {
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET); // SCL High
+    HAL_Delay(20); // Short delay
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET); // SCL Low
+    HAL_Delay(20);
+  }
+
+  // Reinitialize I2C
+  HAL_I2C_DeInit(&hi2c1);
+  HAL_I2C_Init(&hi2c1);
+}
+
+
 void MPU6050_Read_Accel(int16_t *AccelX, int16_t *AccelY, int16_t *AccelZ) {
   uint8_t buffer[6]; // Buffer to store the raw data (6 bytes for X, Y, Z)
-
   // Read 6 bytes starting from ACCEL_XOUT_H (0x3B)
   if (HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, ACCEL_XOUT_H, I2C_MEMADD_SIZE_8BIT, buffer, 6, HAL_MAX_DELAY) == HAL_OK) {
     // Combine high and low bytes for each axis
+//  HAL_UART_Transmit(&huart1, buffer, sizeof(buffer), 1000)
     *AccelX = (int16_t)(buffer[0] << 8 | buffer[1]); // X-axis
     *AccelY = (int16_t)(buffer[2] << 8 | buffer[3]); // Y-axis
     *AccelZ = (int16_t)(buffer[4] << 8 | buffer[5]); // Z-axis
@@ -166,13 +183,57 @@ void MPU6050_Read_Accel(int16_t *AccelX, int16_t *AccelY, int16_t *AccelZ) {
     *AccelX = 0;
     *AccelY = 0;
     *AccelZ = 0;
+
   }
 }
 
 float MPU6050_Convert_to_g(int16_t raw_value) {
-  return (float)raw_value / 16384.0;  // Assuming default ±2g sensitivity
+  return (float)(raw_value / 16384.0);  // Assuming default ±2g sensitivity
 }
-//* USER CODE END 0 */
+
+// Define the structure globally or before you use it
+struct CalibrationData {
+    float AccelX;
+    float AccelY;
+    float AccelZ;
+};
+
+// Modified function returning CalibrationData structure
+struct CalibrationData MPU6050_Calibration() {
+    float AccelX_g = 0, AccelY_g = 0, AccelZ_g = 0;
+    float AccelX_g_sum = 0, AccelY_g_sum = 0, AccelZ_g_sum = 0;
+    int cnt = 0; // cnt should be an integer
+
+    // Read data 1024 times for calibration
+    while (cnt < 1024) {
+        // Read raw accelerometer data from the MPU6050 sensor
+        MPU6050_Read_Accel(&AccelX, &AccelY, &AccelZ);
+
+        // Convert the raw accelerometer data to 'g' units
+        AccelX_g = MPU6050_Convert_to_g(AccelX);
+        AccelY_g = MPU6050_Convert_to_g(AccelY);
+        AccelZ_g = MPU6050_Convert_to_g(AccelZ);
+
+        // Sum the 'g' values for averaging
+        AccelX_g_sum += AccelX_g;
+        AccelY_g_sum += AccelY_g;
+        AccelZ_g_sum += AccelZ_g;
+
+        cnt++; // increment the counter
+    }
+
+    // Average the sums
+    AccelX_g_sum /= 1024;
+    AccelY_g_sum /= 1024;
+    AccelZ_g_sum /= 1024;
+
+    // Create and return the CalibrationData structure
+    struct CalibrationData data = {AccelX_g_sum, AccelY_g_sum, AccelZ_g_sum};
+
+    return data; // Return the structure
+}
+
+/* USER CODE END 0 */
 
 /**
   * @brief  The application entry point.
@@ -180,23 +241,47 @@ float MPU6050_Convert_to_g(int16_t raw_value) {
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
+
   /* USER CODE END 1 */
+
   /* MCU Configuration--------------------------------------------------------*/
+
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
+
   /* USER CODE BEGIN Init */
+
   /* USER CODE END Init */
+
   /* Configure the system clock */
   SystemClock_Config();
+
   /* USER CODE BEGIN SysInit */
+
   /* USER CODE END SysInit */
+
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   MPU6050_Init();
+
+  // Declare variables to store the calibrated values
+  struct CalibrationData calibration;
+
+  // Call the MPU6050_Calibration function and store the returned structure in the 'calibration' variable
+  calibration = MPU6050_Calibration();
+
+  // Access the calibration data
+  float AccelX_cal = calibration.AccelX;
+  float AccelY_cal = calibration.AccelY;
+  float AccelZ_cal = calibration.AccelZ;
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -206,9 +291,22 @@ int main(void)
     /* USER CODE END WHILE */
     /* USER CODE BEGIN 3 */
     MPU6050_Read_Accel(&AccelX, &AccelY, &AccelZ);
+
     AccelX_g = MPU6050_Convert_to_g(AccelX);
     AccelY_g = MPU6050_Convert_to_g(AccelY);
     AccelZ_g = MPU6050_Convert_to_g(AccelZ);
+
+    AccelX_g -= AccelX_cal;
+    AccelY_g -= AccelY_cal;
+    AccelZ_g -= AccelZ_cal;
+
+
+//    Accel_xyz data;
+//    data.AccelX_g = AccelX_g;
+//    data.AccelY_g = AccelY_g;
+//    data.AccelZ_g = AccelZ_g;
+//    HAL_UART_Transmit(&huart1, (const uint8_t* )&data, sizeof(data), 1000);
+//
 
     // LED BLINKING
     HAL_GPIO_TogglePin (GPIOA, GPIO_PIN_5);
@@ -294,6 +392,39 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
 
 }
 
